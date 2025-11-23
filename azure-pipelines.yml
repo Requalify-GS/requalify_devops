@@ -1,0 +1,38 @@
+variables:
+  - name: BuildParameters.wrapperScript
+    value: gradlew
+  - name: BuildParameters.tasks
+    value: build
+trigger:
+  branches:
+    include:
+      - refs/heads/main
+name: $(date:yyyyMMdd)$(rev:.r)
+jobs:
+  - job: Job_1
+    displayName: build CI
+    pool:
+      vmImage: windows-2019
+    steps:
+      - checkout: self
+        fetchDepth: 1
+      - task: Gradle@2
+        displayName: gradlew build
+        inputs:
+          wrapperScript: $(BuildParameters.wrapperScript)
+          options: -Dspring.datasource.url=$(DB_URL) -Dspring.datasource.username=$(DB_USER) -Dspring.datasource.password=$(DB_PASSWORD) -Dspring.ai.openai.api-key=$(API_KEY) -Dspring.rabbitmq.host=$(RABBITMQ_HOST) -Dspring.rabbitmq.port=$(RABBITMQ_PORT) -Dspring.rabbitmq.username=$(RABBITMQ_USER) -Dspring.rabbitmq.password=$(RABBITMQ_PASSWORD)
+          tasks: $(BuildParameters.tasks)
+          jdkVersion: 1.17
+      - task: CopyFiles@2
+        displayName: 'Copy Files to: $(build.artifactstagingdirectory)'
+        condition: succeededOrFailed()
+        inputs:
+          SourceFolder: $(system.defaultworkingdirectory)
+          Contents: '**/*.jar'
+          TargetFolder: $(build.artifactstagingdirectory)
+      - task: PublishBuildArtifacts@1
+        displayName: 'Publish Artifact: drop'
+        condition: succeededOrFailed()
+        inputs:
+          PathtoPublish: $(build.artifactstagingdirectory)
+...

@@ -25,11 +25,6 @@
 
 ## 🎬 Demonstrações
 
-### 📹 Vídeo Pitch
-> Conheça a visão e proposta de valor do Requalify
-
-🔗 **[Assistir Pitch no YouTube](https://youtube.com/seu-video-pitch)**
-
 ### 🖥️ Vídeo Demonstração
 > Demonstração completa das funcionalidades do sistema (10 min)
 
@@ -40,9 +35,9 @@
 ## 🔗 Links de Deploy
 
 ### 🌐 Aplicação Backend (API)
-- **URL**: `https://http://requlify.azurewebsites.net/`
-- **Swagger UI**: `https://http://requlify.azurewebsites.net/swagger-ui.html`
-- **Health Check**: `https://http://requlify.azurewebsites.net/actuator/health`
+- **URL**: `https://requalify.azurewebsites.net`
+- **Swagger UI**: `https://requalify.azurewebsites.net/swagger-ui.html`
+- **Health Check**: `https://requalify.azurewebsites.net/actuator/health`
 
 ### 💾 Banco de Dados
 - **Host**: `seu-db-host.postgres.database.azure.com`
@@ -117,82 +112,102 @@
 
 ---
 
-## 🚀 Como Executar Localmente
+## 🚀 Comandos Azure CLI
+## 🔹 1. Criar Resource Group
 
-### Pré-requisitos
-
-- **JDK 17** ou superior
-- **Docker** e **Docker Compose**
-- **Gradle** (ou use o wrapper incluído)
-- **Chave API OpenAI** (configure em `application.properties`)
-
-### Passo 1: Clonar o Repositório
 ```bash
-git clone https://github.com/seu-usuario/requalify.git
-cd requalify
+az group create \
+  --name rg-dev \
+  --location canadacentral
 ```
+## 🔹 2. Criar PostgreSQL Flexible Server
 
-### Passo 2: Configurar Variáveis de Ambiente
-
-Crie um arquivo `.env` na raiz do projeto:
-```env
-SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5433/requalify
-SPRING_DATASOURCE_USERNAME=requalify
-SPRING_DATASOURCE_PASSWORD=requalify
-SPRING_AI_OPENAI_API_KEY=sua-chave-openai-aqui
-SPRING_RABBITMQ_HOST=localhost
-SPRING_RABBITMQ_PORT=5672
-```
-
-Ou configure diretamente em `src/main/resources/application.properties`:
-```properties
-spring.datasource.url=jdbc:postgresql://localhost:5433/requalify
-spring.datasource.username=requalify
-spring.datasource.password=requalify
-
-spring.ai.openai.api-key=${OPENAI_API_KEY}
-spring.ai.openai.chat.options.model=gpt-4o-mini
-spring.ai.openai.chat.options.temperature=0.7
-
-spring.rabbitmq.host=localhost
-spring.rabbitmq.port=5672
-spring.rabbitmq.username=guest
-spring.rabbitmq.password=guest
-```
-
-### Passo 3: Iniciar Dependências (PostgreSQL + RabbitMQ)
 ```bash
-docker-compose up -d
+az postgres flexible-server create \
+  --resource-group rg-dev \
+  --name requalify-db \
+  --location canadacentral \
+  --version 17 \
+  --tier Burstable \
+  --sku-name Standard_B1ms \
+  --storage-size 32 \
+  --public-access 0.0.0.0 \
+  --admin-user requalify \
+  --admin-password "Password123$"
 ```
-
-Isso iniciará:
-- **PostgreSQL** na porta `5433`
-- **RabbitMQ** na porta `5672` (Management UI em `15672`)
-
-### Passo 4: Executar a Aplicação
-
-#### Usando Gradle Wrapper (Linux/Mac)
+Regras de Firewall
 ```bash
-./gradlew bootRun
-```
+az postgres flexible-server firewall-rule create \
+  --resource-group rg-dev \
+  --name requalify-db \
+  --rule-name AllowAll \
+  --start-ip-address 0.0.0.0 \
+  --end-ip-address 255.255.255.255
 
-#### Usando Gradle Wrapper (Windows)
+az postgres flexible-server firewall-rule create \
+  --resource-group rg-dev \
+  --name requalify-db \
+  --rule-name AllowAzureServices \
+  --start-ip-address 0.0.0.0 \
+  --end-ip-address 0.0.0.0
+```
+## 🔹 3. Registrar Providers Necessários
+
 ```bash
-gradlew.bat bootRun
+az provider register --namespace Microsoft.ContainerInstance
+az provider register --namespace Microsoft.ContainerService
+az provider register --namespace Microsoft.Web
+az provider register --namespace Microsoft.DBforPostgreSQL
+az provider register --namespace Microsoft.Network
+az provider register --namespace Microsoft.Storage
 ```
+## 🔹 4. Criar Container RabbitMQ
 
-#### Ou construa o JAR
 ```bash
-./gradlew build
-java -jar build/libs/requalify-0.0.1-SNAPSHOT.jar
+az container create \
+  --resource-group rg-dev \
+  --name rabbitmq \
+  --image rabbitmq:4.0-management \
+  --cpu 1 \
+  --memory 1 \
+  --os-type Linux \
+  --ports 5672 15672 \
+  --dns-name-label rabbitmq-requalify-dev \
+  --restart-policy Always \
+  --environment-variables \
+      RABBITMQ_DEFAULT_USER=guest \
+      RABBITMQ_DEFAULT_PASS=guest
+```
+🔸 Obter IP do Container
+```bash
+az container show \
+  --resource-group rg-dev \
+  --name rabbitmq \
+  --query ipAddress.ip \
+  -o tsv
 ```
 
-### Passo 5: Acessar a Aplicação
+## 🔹 5. Criar App Service Plan
 
-- **API Base**: `http://localhost:8080`
-- **Swagger UI**: `http://localhost:8080/swagger-ui.html`
-- **RabbitMQ Management**: `http://localhost:15672` (guest/guest)
+```bash
+az appservice plan create \
+  --name asp-requalify \
+  --resource-group rg-dev \
+  --location canadacentral \
+  --sku B1 \
+  --is-linux
+```
+## 🔹 6. Criar Web App
 
+```bash
+az webapp create \
+  --resource-group rg-dev \
+  --plan asp-requalify \
+  --name requalify \
+  --runtime "java:17-java17" \
+  --deployment-container-image-name "" \
+  --https-only false
+```
 ---
 
 ## 📚 Endpoints Principais da API
@@ -348,7 +363,7 @@ Authorization: Bearer {token}
 ### Usando cURL
 ```bash
 # 1. Cadastrar usuário
-curl -X POST http://localhost:8080/user \
+curl -X POST https://requalify.azurewebsites.net/user \
   -H "Content-Type: application/json" \
   -d '{
     "username": "teste@email.com",
@@ -357,7 +372,7 @@ curl -X POST http://localhost:8080/user \
   }'
 
 # 2. Fazer login e obter token
-TOKEN=$(curl -X POST http://localhost:8080/user/login \
+TOKEN=$(curl -X POST https://requalify.azurewebsites.net/user/login \
   -H "Content-Type: application/json" \
   -d '{
     "username": "teste@email.com",
@@ -365,7 +380,7 @@ TOKEN=$(curl -X POST http://localhost:8080/user/login \
   }' | jq -r '.token')
 
 # 3. Criar currículo
-curl -X POST http://localhost:8080/resume/user/1 \
+curl -X POST https://requalify.azurewebsites.net/resume/user/1 \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -375,7 +390,7 @@ curl -X POST http://localhost:8080/resume/user/1 \
   }'
 
 # 4. Gerar roadmap com IA
-curl -X POST http://localhost:8080/roadmap/user/1 \
+curl -X POST https://requalify.azurewebsites.net/roadmap/user/1 \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -387,7 +402,7 @@ curl -X POST http://localhost:8080/roadmap/user/1 \
 ### Usando Postman/Insomnia
 
 1. Importe a coleção disponível em `/docs/postman-collection.json`
-2. Configure a variável de ambiente `BASE_URL` como `http://localhost:8080`
+2. Configure a variável de ambiente `BASE_URL` como `https://requalify.azurewebsites.net`
 3. Execute os requests na ordem: Cadastro → Login → Criar Currículo → Gerar Roadmap
 
 ---
@@ -466,7 +481,7 @@ docker-compose logs -f
 
 ### RabbitMQ Management
 
-Acesse `http://localhost:15672` para monitorar:
+Acesse `http://rabbitmq-requalify-dev.canadacentral.azurecontainer.io:15672/` para monitorar:
 - Filas ativas
 - Mensagens processadas
 - Taxa de consumo
